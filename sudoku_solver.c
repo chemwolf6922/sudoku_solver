@@ -154,6 +154,11 @@ static void convert_result_back(sudoku_internal_t* s, sudoku_t* output)
         output->numbers[i] = s->numbers[i] + 1;
 }
 
+void sudoku_solver_prepare()
+{
+    build_cache();
+}
+
 int64_t sudoku_solver_solve(sudoku_t* input)
 {
     build_cache();
