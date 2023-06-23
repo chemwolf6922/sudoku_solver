@@ -9,6 +9,7 @@ typedef struct
     int rows[9];
     int columns[9];
     int blocks[9];
+    int64_t n_iter;
 } sudoku_internal_t;
 
 typedef struct
@@ -101,12 +102,13 @@ static int check_and_convert_input(sudoku_t* input, sudoku_internal_t* s)
 
 static int solve_next(sudoku_internal_t* s)
 {
-    int i,j;
+    int min_i,min_j;
     possibility_t* p = NULL;
+    s->n_iter ++;
     /** find the empty slot with the least possibilities */
-    for(i=0;i<9;i++)
+    for(int i=0;i<9;i++)
     {
-        for(j=0;j<9;j++)
+        for(int j=0;j<9;j++)
         {
             /** is empty? */
             if(s->numbers[LOCATE_ROW_ITEM(i,j)] < 0)
@@ -115,7 +117,11 @@ static int solve_next(sudoku_internal_t* s)
                 int bits = s->rows[i] | s->columns[j] | s->blocks[WHICH_BLOCK(i,j)];
                 /** find arg_min */
                 if(!p || p->number_of_possibilities > cache.possibilities[bits].number_of_possibilities)
+                {
+                    min_i = i;
+                    min_j = j;
                     p = &cache.possibilities[bits];
+                }
             }
         }
     }
@@ -126,18 +132,19 @@ static int solve_next(sudoku_internal_t* s)
     for(int k=0;k<p->number_of_possibilities;k++)
     {
         /** update s */
-        s->numbers[LOCATE_ROW_ITEM(i,j)] = p->possibilities[k];
-        s->rows[i] |= 1<<k;
-        s->columns[j] |= 1<<k;
-        s->blocks[WHICH_BLOCK(i,j)] |= 1<<k;
+        int n = p->possibilities[k];
+        s->numbers[LOCATE_ROW_ITEM(min_i,min_j)] = n;
+        s->rows[min_i] |= 1<<n;
+        s->columns[min_j] |= 1<<n;
+        s->blocks[WHICH_BLOCK(min_i,min_j)] |= 1<<n;
         /** solve next */
         if(solve_next(s) == 0)
             return 0;           /** propgate back success */
         /** restore s if this does not work */
-        s->numbers[LOCATE_ROW_ITEM(i,j)] = -1;
-        s->rows[i] ^= 1<<k;
-        s->columns[j] ^= 1<<k;
-        s->blocks[WHICH_BLOCK(i,j)] ^= 1<<k;
+        s->numbers[LOCATE_ROW_ITEM(min_i,min_j)] = -1;
+        s->rows[min_i] ^= 1<<n;
+        s->columns[min_j] ^= 1<<n;
+        s->blocks[WHICH_BLOCK(min_i,min_j)] ^= 1<<n;
     }
     /** no luck */
     return -1;
@@ -149,7 +156,7 @@ static void convert_result_back(sudoku_internal_t* s, sudoku_t* output)
         output->numbers[i] = s->numbers[i] + 1;
 }
 
-int sudoku_solver_solve(sudoku_t* input)
+int64_t sudoku_solver_solve(sudoku_t* input)
 {
     build_cache();
     sudoku_internal_t s = {0};
@@ -158,43 +165,5 @@ int sudoku_solver_solve(sudoku_t* input)
     if(solve_next(&s) != 0)
         return -1;
     convert_result_back(&s, input);
-    return 0;
+    return s.n_iter;
 }
-
-
-/** for test */
-#include <stdio.h>
-
-int main(int argc, char const *argv[])
-{
-    sudoku_t s = {
-        .numbers = {2,0,1, 8,0,0, 0,0,4,
-                    8,9,0, 3,0,0, 2,6,1,
-                    0,6,7, 1,0,9, 0,0,5,
-                    
-                    0,0,8, 0,0,6, 0,0,0,
-                    0,0,3, 5,0,0, 6,0,0,
-                    0,0,2, 7,4,3, 0,9,8,
-                    
-                    0,0,0, 0,0,0, 0,1,9,
-                    5,0,9, 0,3,2, 0,0,6,
-                    0,0,0, 0,1,7, 4,5,2}
-    };
-    if(sudoku_solver_solve(&s) != 0)
-    {
-        printf("Can not solve.\n");
-        return 1;
-    }
-    printf("Solved\n");
-    for(int i=0;i<9;i++)
-    {
-        for(int j=0;j<9;j++)
-        {
-            putchar(s.numbers[i*9+j]+'0');
-            putchar(' ');
-        }
-        putchar('\n');
-    }
-    return 0;
-}
-
