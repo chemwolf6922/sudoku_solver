@@ -137,7 +137,7 @@ static int solve_next(sudoku_internal_t* s)
         s->blocks[WHICH_BLOCK(min_i,min_j)] |= 1<<n;
         /** solve next */
         if(solve_next(s) == 0)
-            return 0;           /** propgate back success */
+            return 0;           /** propagate back success */
         /** restore s if this does not work */
         s->numbers[LOCATE_ROW_ITEM(min_i,min_j)] = -1;
         s->rows[min_i] ^= 1<<n;
