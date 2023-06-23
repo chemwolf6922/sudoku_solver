@@ -30,11 +30,9 @@ static sudoku_cache_t cache = {
 
 #define LOCATE_ROW_ITEM(row,item) ((row)*9+(item))
 #define LOCATE_COLUMN_ITEM(column,item) ((item)*9+(column))
-/** @todo accelerate this */
 #define LOCATE_BLOCK_ITEM(block,item) (((block)/3)*27 + ((block)%3)*3 + ((item)/3)*9 + (item)%3)
 #define WHICH_ROW(n) ((n)/9)
 #define WHICH_COLUMN(n) ((n)%9)
-/** @todo accelerate this */
 #define WHICH_BLOCK(row,column) ((row)/3*3+(column)/3)
 
 static void build_cache()
