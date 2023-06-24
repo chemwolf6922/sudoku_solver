@@ -124,29 +124,28 @@ static int check_and_convert_input(sudoku_t* input, sudoku_internal_t* s)
 
 static int solve_next(sudoku_internal_t* s)
 {
-    int min_i,min_j;
-    possibility_t* p = NULL;
     s->n_iter ++;
-    /** find the empty slot with the least possibilities */
-    sudoku_entry_t* entry = s->empty_entry;
+    possibility_t* p = NULL;
     sudoku_entry_t* min_entry = NULL;
-    while(entry)
+    sudoku_entry_t* entry = s->empty_entry;
+    /** check if the sudoku is finished */
+    if(__builtin_expect(!entry,0))
+        return 0;
+    /** find the empty slot with the least possibilities */
+    while(__builtin_expect(entry!=NULL,1))
     {
         /** get the combined bit map */
         int bits = s->rows[entry->row] | s->columns[entry->column] | s->blocks[entry->block];
         /** find arg_min */
-        if(!p || p->number_of_possibilities > cache.possibilities[bits].number_of_possibilities)
+        if(__builtin_expect(!p || p->number_of_possibilities > cache.possibilities[bits].number_of_possibilities,0))
         {
             min_entry = entry;
-            min_i = entry->row;
-            min_j = entry->column;
             p = &cache.possibilities[bits];
+            if(p->number_of_possibilities == 0)
+                break;
         }
         entry = entry->next;
     }
-    /** check if the sudoku is finished */
-    if(!p)
-        return 0;
     /** try all possibilities */
     for(int k=0;k<p->number_of_possibilities;k++)
     {
@@ -160,11 +159,11 @@ static int solve_next(sudoku_internal_t* s)
             s->empty_entry = min_entry->next;
         if(min_entry->next)
             min_entry->next->prev = min_entry->prev;  
-        s->rows[min_i] |= 1<<n;
-        s->columns[min_j] |= 1<<n;
-        s->blocks[WHICH_BLOCK(min_i,min_j)] |= 1<<n;
+        s->rows[min_entry->row] |= 1<<n;
+        s->columns[min_entry->column] |= 1<<n;
+        s->blocks[min_entry->block] |= 1<<n;
         /** solve next */
-        if(solve_next(s) == 0)
+        if(__builtin_expect(solve_next(s) == 0,0))
             return 0;           /** propagate back success */
         /** restore s if this does not work */
         min_entry->number = -1;
@@ -175,9 +174,9 @@ static int solve_next(sudoku_internal_t* s)
             s->empty_entry = min_entry;
         if(min_entry->next)
             min_entry->next->prev = min_entry;  
-        s->rows[min_i] ^= 1<<n;
-        s->columns[min_j] ^= 1<<n;
-        s->blocks[WHICH_BLOCK(min_i,min_j)] ^= 1<<n;
+        s->rows[min_entry->row] ^= 1<<n;
+        s->columns[min_entry->column] ^= 1<<n;
+        s->blocks[min_entry->block] ^= 1<<n;
     }
     /** no luck */
     return -1;
