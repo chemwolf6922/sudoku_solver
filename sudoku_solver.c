@@ -3,23 +3,13 @@
 #include <string.h>
 #include "sudoku_solver.h"
 
-typedef struct sudoku_entry_s
-{
-    struct sudoku_entry_s* prev;
-    struct sudoku_entry_s* next;
-    int8_t number;         /** 0-8, -1 means empty */
-    int8_t row;
-    int8_t column;
-    int8_t block;
-} sudoku_entry_t;
-
 typedef struct
 {
-    sudoku_entry_t entries[9*9];
-    sudoku_entry_t* empty_entry;
-    int rows[9];
-    int columns[9];
-    int blocks[9];
+    int n_numbers;
+    int8_t numbers[128];    /** only 9*9 are used */
+    int16_t rows[16];       /** only 9 are used */
+    int16_t columns[16];    /** only 9 are used */
+    int16_t blocks[16];     /** only 9 are used */
     int64_t n_iter;
 } sudoku_internal_t;
 
@@ -69,24 +59,13 @@ static void build_cache()
 static int check_and_convert_input(sudoku_t* input, sudoku_internal_t* s)
 {
     memset(s, 0, sizeof(sudoku_internal_t));
-    sudoku_entry_t* empty_entry = NULL;
     for(int i=0; i<9*9; i++)
     {
         if(input->numbers[i] < 0 || input->numbers[i] > 9)  /** invalid number */
             return -1;
-        s->entries[i].number = input->numbers[i] - 1;
-        s->entries[i].row = WHICH_ROW(i);
-        s->entries[i].column = WHICH_COLUMN(i);
-        s->entries[i].block = WHICH_BLOCK(s->entries[i].row, s->entries[i].column);
-        if(s->entries[i].number == -1)
-        {
-            if(empty_entry == NULL)
-                s->empty_entry = &s->entries[i];
-            else
-                empty_entry->next = &s->entries[i];
-            s->entries[i].prev = empty_entry;
-            empty_entry = &s->entries[i];
-        }
+        s->numbers[i] = input->numbers[i] - 1;
+        if(s->numbers[i] != -1)
+            s->n_numbers++;
     }
     /** construct bit maps */
     for(int i = 0; i < 9; i++)
@@ -94,7 +73,7 @@ static int check_and_convert_input(sudoku_t* input, sudoku_internal_t* s)
         for(int j=0; j < 9; j++)
         {
             /** rows */
-            int n = s->entries[LOCATE_ROW_ITEM(i,j)].number;
+            int n = s->numbers[LOCATE_ROW_ITEM(i,j)];
             if(n >= 0)
             {   
                 if(s->rows[i] & 1<<n)   /** duplicate numbers in a row */
@@ -102,7 +81,7 @@ static int check_and_convert_input(sudoku_t* input, sudoku_internal_t* s)
                 s->rows[i] |= 1<<n;  
             }
             /** columns */
-            n = s->entries[LOCATE_COLUMN_ITEM(i,j)].number;
+            n = s->numbers[LOCATE_COLUMN_ITEM(i,j)];
             if(n >= 0)
             {   
                 if(s->columns[i] & 1<<n)   /** duplicate numbers in a column */
@@ -110,7 +89,7 @@ static int check_and_convert_input(sudoku_t* input, sudoku_internal_t* s)
                 s->columns[i] |= 1<<n;  
             }
             /** blocks */
-            n = s->entries[LOCATE_BLOCK_ITEM(i,j)].number;
+            n = s->numbers[LOCATE_BLOCK_ITEM(i,j)];
             if(n >= 0)
             {   
                 if(s->blocks[i] & 1<<n)   /** duplicate numbers in a block */
@@ -122,61 +101,61 @@ static int check_and_convert_input(sudoku_t* input, sudoku_internal_t* s)
     return 0;
 }
 
+static inline int arg_min_possibility(sudoku_internal_t* s)
+{
+    /** find the empty slot with the least possibilities */
+    int arg_min = -1;
+    int min = INT32_MAX;
+    for(int i=0;i<9;i++)
+    {
+        for(int j=0;j<9;j++)
+        {
+            if(s->numbers[LOCATE_ROW_ITEM(i,j)] == -1)
+            {
+                int bits = s->rows[i] | s->columns[j] | s->blocks[WHICH_BLOCK(i,j)];
+                int n = cache.possibilities[bits].number_of_possibilities;
+                if(n < min)
+                {
+                    min = n;
+                    arg_min = LOCATE_ROW_ITEM(i,j);
+                }
+            }
+        }
+    }
+    return arg_min;
+}
+
 static int solve_next(sudoku_internal_t* s)
 {
     s->n_iter ++;
-    possibility_t* p = NULL;
-    sudoku_entry_t* min_entry = NULL;
-    sudoku_entry_t* entry = s->empty_entry;
     /** check if the sudoku is finished */
-    if(__builtin_expect(!entry,0))
+    if(s->n_numbers == 9*9)
         return 0;
-    /** find the empty slot with the least possibilities */
-    while(__builtin_expect(entry!=NULL,1))
-    {
-        /** get the combined bit map */
-        int bits = s->rows[entry->row] | s->columns[entry->column] | s->blocks[entry->block];
-        /** find arg_min */
-        if(__builtin_expect(!p || p->number_of_possibilities > cache.possibilities[bits].number_of_possibilities,0))
-        {
-            min_entry = entry;
-            p = &cache.possibilities[bits];
-            if(p->number_of_possibilities == 0)
-                break;
-        }
-        entry = entry->next;
-    }
+    int pos = arg_min_possibility(s);
+    int row = WHICH_ROW(pos);
+    int column = WHICH_COLUMN(pos);
+    int block = WHICH_BLOCK(row,column);
+    int16_t bits = s->rows[row] | s->columns[column] | s->blocks[block];
+    possibility_t* p = &cache.possibilities[bits];
     /** try all possibilities */
-    for(int k=0;k<p->number_of_possibilities;k++)
+    for(int i=0;i<p->number_of_possibilities;i++)
     {
         /** update s */
-        int n = p->possibilities[k];
-        min_entry->number = n;
-        /** unlink entry */
-        if(min_entry->prev)
-            min_entry->prev->next = min_entry->next;
-        else
-            s->empty_entry = min_entry->next;
-        if(min_entry->next)
-            min_entry->next->prev = min_entry->prev;  
-        s->rows[min_entry->row] |= 1<<n;
-        s->columns[min_entry->column] |= 1<<n;
-        s->blocks[min_entry->block] |= 1<<n;
+        int n = p->possibilities[i];
+        s->n_numbers ++;
+        s->numbers[pos] = n;
+        s->rows[row] |= 1<<n;
+        s->columns[column] |= 1<<n;
+        s->blocks[block] |= 1<<n;
         /** solve next */
         if(__builtin_expect(solve_next(s) == 0,0))
             return 0;           /** propagate back success */
         /** restore s if this does not work */
-        min_entry->number = -1;
-        /** relink entry */
-        if(min_entry->prev)
-            min_entry->prev->next = min_entry;
-        else
-            s->empty_entry = min_entry;
-        if(min_entry->next)
-            min_entry->next->prev = min_entry;  
-        s->rows[min_entry->row] ^= 1<<n;
-        s->columns[min_entry->column] ^= 1<<n;
-        s->blocks[min_entry->block] ^= 1<<n;
+        s->n_numbers --;
+        s->numbers[pos] = -1;
+        s->rows[row] ^= 1<<n;
+        s->columns[column] ^= 1<<n;
+        s->blocks[block] ^= 1<<n;
     }
     /** no luck */
     return -1;
@@ -185,7 +164,7 @@ static int solve_next(sudoku_internal_t* s)
 static void convert_result_back(sudoku_internal_t* s, sudoku_t* output)
 {
     for(int i=0; i<9*9; i++)
-        output->numbers[i] = s->entries[i].number + 1;
+        output->numbers[i] = s->numbers[i] + 1;
 }
 
 void sudoku_solver_prepare()
