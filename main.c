@@ -35,6 +35,7 @@ int main(int argc, char const *argv[])
         return 1;
     }
     printf("Solved in %"PRId64" iterations [%"PRIu64" ns]\n", n_iter, time_past);
+    printf("%"PRIu64"ns per iteration\n",time_past/n_iter);
     for(int i=0;i<9;i++)
     {
         for(int j=0;j<9;j++)
