@@ -1,5 +1,5 @@
 CFLAGS?=-O3
-override CFLAGS+=-MMD -MP -mavx2
+override CFLAGS+=-MMD -MP -march=native
 LDFLAGS?=
 
 APP=test
