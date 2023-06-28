@@ -7,10 +7,10 @@
 typedef struct
 {
     int n_numbers;
-    int8_t numbers[96];    /** only 9*9 are used */
-    int16_t rows[16];       /** only 9 are used */
-    int16_t columns[16];    /** only 9 are used */
-    int16_t blocks[16];     /** only 9 are used */
+    int16_t numbers[96];    /** only 9*9 are used */
+    int16_t rows[32];       /** only 9 are used */
+    int16_t columns[32];    /** only 9 are used */
+    int16_t blocks[32];     /** only 9 are used */
     int64_t n_iter;
 } sudoku_internal_t;
 
@@ -126,180 +126,122 @@ static inline int arg_min_possibility_baseline(sudoku_internal_t* s)
     return arg_min;
 }
 
-static inline int arg_min_possibility_avx2(sudoku_internal_t* s)
+#define REVERSE_PARAMS32(v0,v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11,v12,v13,v14,v15,v16,v17,v18,v19,v20,v21,v22,v23,v24,v25,v26,v27,v28,v29,v30,v31)\
+    (v31),(v30),(v29),(v28),(v27),(v26),(v25),(v24),\
+    (v23),(v22),(v21),(v20),(v19),(v18),(v17),(v16),\
+    (v15),(v14),(v13),(v12),(v11),(v10), (v9), (v8),\
+     (v7), (v6), (v5), (v4), (v3), (v2), (v1), (v0)
+
+static inline int arg_min_possibility_avx512(sudoku_internal_t* s)
 {
-    /** arrange row into two lookup tables */
-    __m256i row_lut = _mm256_loadu_si256((__m256i_u*)s->rows);
-    __m256i row_lut_lo = _mm256_and_si256(row_lut, _mm256_set1_epi16(0x00FF)); 
-    row_lut_lo = _mm256_packus_epi16(row_lut_lo, row_lut_lo);
-    row_lut_lo = _mm256_permute4x64_epi64(row_lut_lo, _MM_SHUFFLE(3,1,2,0));
-    __m256i row_lut_hi = _mm256_srli_epi16(row_lut, 8);
-    row_lut_hi = _mm256_packus_epi16(row_lut_hi, row_lut_hi);
-    row_lut_hi = _mm256_permute4x64_epi64(row_lut_hi, _MM_SHUFFLE(3,1,2,0));
-    /** arrange col into two lookup tables */
-    __m256i col_lut = _mm256_loadu_si256((__m256i_u*)s->columns);
-    __m256i col_lut_lo = _mm256_and_si256(col_lut, _mm256_set1_epi16(0x00FF)); 
-    col_lut_lo = _mm256_packus_epi16(col_lut_lo, col_lut_lo);
-    col_lut_lo = _mm256_permute4x64_epi64(col_lut_lo, _MM_SHUFFLE(3,1,2,0));
-    __m256i col_lut_hi = _mm256_srli_epi16(col_lut, 8);
-    col_lut_hi = _mm256_packus_epi16(col_lut_hi, col_lut_hi);
-    col_lut_hi = _mm256_permute4x64_epi64(col_lut_hi, _MM_SHUFFLE(3,1,2,0));
-    /** arrange blk into two lookup tables */
-    __m256i blk_lut = _mm256_loadu_si256((__m256i_u*)s->blocks);
-    __m256i blk_lut_lo = _mm256_and_si256(blk_lut, _mm256_set1_epi16(0x00FF)); 
-    blk_lut_lo = _mm256_packus_epi16(blk_lut_lo, blk_lut_lo);
-    blk_lut_lo = _mm256_permute4x64_epi64(blk_lut_lo, _MM_SHUFFLE(3,1,2,0));
-    __m256i blk_lut_hi = _mm256_srli_epi16(blk_lut, 8);
-    blk_lut_hi = _mm256_packus_epi16(blk_lut_hi, blk_lut_hi);
-    blk_lut_hi = _mm256_permute4x64_epi64(blk_lut_hi, _MM_SHUFFLE(3,1,2,0));
+    /** load luts */
+    __m512i row_lut = _mm512_loadu_si512(s->rows);
+    __m512i col_lut = _mm512_loadu_si512(s->columns);
+    __m512i blk_lut = _mm512_loadu_si512(s->blocks);
 
     /** 0-31 */
     /** lookup row for the first 32 numbers */
-    __m256i row_index = _mm256_setr_epi8(0,0,0,0,0,0,0,0,0,
-                                         1,1,1,1,1,1,1,1,1,
-                                         2,2,2,2,2,2,2,2,2,
-                                         3,3,3,3,3);
-    __m256i row_lo = _mm256_shuffle_epi8(row_lut_lo, row_index);
-    __m256i row_hi = _mm256_shuffle_epi8(row_lut_hi, row_index);
+    __m512i row_index = _mm512_set_epi16(REVERSE_PARAMS32(0,0,0,0,0,0,0,0,0,
+                                                          1,1,1,1,1,1,1,1,1,
+                                                          2,2,2,2,2,2,2,2,2,
+                                                          3,3,3,3,3));
+    __m512i row = _mm512_permutex2var_epi16(row_lut, row_index, row_lut);
     /** lookup col for the first 32 numbers */
-    __m256i col_index = _mm256_setr_epi8(0,1,2,3,4,5,6,7,8,
-                                         0,1,2,3,4,5,6,7,8,
-                                         0,1,2,3,4,5,6,7,8,
-                                         0,1,2,3,4);
-    __m256i col_lo = _mm256_shuffle_epi8(col_lut_lo, col_index);
-    __m256i col_hi = _mm256_shuffle_epi8(col_lut_hi, col_index);
+    __m512i col_index = _mm512_set_epi16(REVERSE_PARAMS32(0,1,2,3,4,5,6,7,8,
+                                                          0,1,2,3,4,5,6,7,8,
+                                                          0,1,2,3,4,5,6,7,8,
+                                                          0,1,2,3,4));
+    __m512i col = _mm512_permutex2var_epi16(col_lut, col_index, col_lut);
     /** lookup blk for the first 32 numbers */
-    __m256i blk_index = _mm256_setr_epi8(0,0,0,1,1,1,2,2,2,
-                                         0,0,0,1,1,1,2,2,2,
-                                         0,0,0,1,1,1,2,2,2,
-                                         3,3,3,4,4);
-    __m256i blk_lo = _mm256_shuffle_epi8(blk_lut_lo, blk_index);
-    __m256i blk_hi = _mm256_shuffle_epi8(blk_lut_hi, blk_index);
+    __m512i blk_index = _mm512_setr_epi16(REVERSE_PARAMS32(0,0,0,1,1,1,2,2,2,
+                                                           0,0,0,1,1,1,2,2,2,
+                                                           0,0,0,1,1,1,2,2,2,
+                                                           3,3,3,4,4));
+    __m512i blk = _mm512_permutex2var_epi16(blk_lut, blk_index, blk_lut);
 
     /** or total results for the first 32 numbers */
-    __m256i total_lo = _mm256_or_si256(row_lo, col_lo);
-    total_lo = _mm256_or_si256(total_lo, blk_lo);
-    __m256i total_hi = _mm256_or_si256(row_hi, col_hi);
-    total_hi = _mm256_or_si256(total_hi, blk_hi);
-
+    __m512i total = _mm512_or_si512(row, col);
+    total = _mm512_or_si512(total, blk);
     /** count ones */
-    __m256i ones_lut = _mm256_setr_epi8(0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4);
-    __m256i total_lo_lo = _mm256_and_si256(total_lo, _mm256_set1_epi8(0x0F));
-    total_lo_lo = _mm256_shuffle_epi8(ones_lut, total_lo_lo);
-    __m256i total_lo_hi = _mm256_srli_epi16(total_lo, 4);
-    total_lo_hi = _mm256_and_si256(total_lo_hi, _mm256_set1_epi8(0x0F));
-    total_lo_hi = _mm256_shuffle_epi8(ones_lut, total_lo_hi);
-    __m256i ones_0_31 = _mm256_add_epi8(total_lo_lo, total_lo_hi);
-    ones_0_31 = _mm256_add_epi8(ones_0_31, total_hi);
+    __m512i ones_0_31 = _mm512_popcnt_epi16(total);
 
     /** 32 - 63 */
-    row_index = _mm256_setr_epi8(3,3,3,3,
-                       4,4,4,4,4,4,4,4,4,
-                       5,5,5,5,5,5,5,5,5,
-                       6,6,6,6,6,6,6,6,6,
-                       7);
-    row_lo = _mm256_shuffle_epi8(row_lut_lo, row_index);
-    row_hi = _mm256_shuffle_epi8(row_lut_hi, row_index);
-    col_index = _mm256_setr_epi8(5,6,7,8,
-                       0,1,2,3,4,5,6,7,8,
-                       0,1,2,3,4,5,6,7,8,
-                       0,1,2,3,4,5,6,7,8,
-                       0);
-    col_lo = _mm256_shuffle_epi8(col_lut_lo, col_index);
-    col_hi = _mm256_shuffle_epi8(col_lut_hi, col_index);
-    blk_index = _mm256_setr_epi8(4,5,5,5,
-                       3,3,3,4,4,4,5,5,5,
-                       3,3,3,4,4,4,5,5,5,
-                       6,6,6,7,7,7,8,8,8,
-                       6);
-    blk_lo = _mm256_shuffle_epi8(blk_lut_lo, blk_index);
-    blk_hi = _mm256_shuffle_epi8(blk_lut_hi, blk_index);
+    row_index = _mm512_set_epi16(REVERSE_PARAMS32(3,3,3,3,
+                                                  4,4,4,4,4,4,4,4,4,
+                                                  5,5,5,5,5,5,5,5,5,
+                                                  6,6,6,6,6,6,6,6,6,
+                                                  7));
+    row = _mm512_permutex2var_epi16(row_lut, row_index, row_lut);
+    col_index = _mm512_set_epi16(REVERSE_PARAMS32(5,6,7,8,
+                                                  0,1,2,3,4,5,6,7,8,
+                                                  0,1,2,3,4,5,6,7,8,
+                                                  0,1,2,3,4,5,6,7,8,
+                                                  0));
+    col = _mm512_permutex2var_epi16(col_lut, col_index, col_lut);
+    blk_index = _mm512_set_epi16(REVERSE_PARAMS32(4,5,5,5,
+                                                  3,3,3,4,4,4,5,5,5,
+                                                  3,3,3,4,4,4,5,5,5,
+                                                  6,6,6,7,7,7,8,8,8,
+                                                  6));
+    blk = _mm512_permutex2var_epi16(blk_lut, blk_index, blk_lut);
 
-    total_lo = _mm256_or_si256(row_lo, col_lo);
-    total_lo = _mm256_or_si256(total_lo, blk_lo);
-    total_hi = _mm256_or_si256(row_hi, col_hi);
-    total_hi = _mm256_or_si256(total_hi, blk_hi);
-
-    total_lo_lo = _mm256_and_si256(total_lo, _mm256_set1_epi8(0x0F));
-    total_lo_lo = _mm256_shuffle_epi8(ones_lut, total_lo_lo);
-    total_lo_hi = _mm256_srli_epi16(total_lo, 4);
-    total_lo_hi = _mm256_and_si256(total_lo_hi, _mm256_set1_epi8(0x0F));
-    total_lo_hi = _mm256_shuffle_epi8(ones_lut, total_lo_hi);
-    __m256i ones_32_63 = _mm256_add_epi8(total_lo_lo, total_lo_hi);
-    ones_32_63 = _mm256_add_epi8(ones_32_63, total_hi);
+    total = _mm512_or_si512(row, col);
+    total = _mm512_or_si512(total, blk);
+    __m512i ones_32_63 = _mm512_popcnt_epi16(total);
 
     /** 64 - 80(95) */
-    row_index = _mm256_setr_epi8(7,7,7,7,7,7,7,7,
-                               8,8,8,8,8,8,8,8,8,
-                               0,0,0,0,0,0,0,0,0,
-                               0,0,0,0,0,0);
-    row_lo = _mm256_shuffle_epi8(row_lut_lo, row_index);
-    row_hi = _mm256_shuffle_epi8(row_lut_hi, row_index);
-    col_index = _mm256_setr_epi8(1,2,3,4,5,6,7,8,
-                               0,1,2,3,4,5,6,7,8,
-                               0,0,0,0,0,0,0,0,0,
-                               0,0,0,0,0,0);
-    col_lo = _mm256_shuffle_epi8(col_lut_lo, col_index);
-    col_hi = _mm256_shuffle_epi8(col_lut_hi, col_index);
-    blk_index = _mm256_setr_epi8(6,6,7,7,7,8,8,8,
-                               6,6,6,7,7,7,8,8,8,
-                               0,0,0,0,0,0,0,0,0,
-                               0,0,0,0,0,0);
-    blk_lo = _mm256_shuffle_epi8(blk_lut_lo, blk_index);
-    blk_hi = _mm256_shuffle_epi8(blk_lut_hi, blk_index);
+    row_index = _mm512_set_epi16(REVERSE_PARAMS32(7,7,7,7,7,7,7,7,
+                                                  8,8,8,8,8,8,8,8,8,
+                                                  0,0,0,0,0,0,0,0,0,
+                                                  0,0,0,0,0,0));
+    row = _mm512_permutex2var_epi16(row_lut, row_index, row_lut);
+    col_index = _mm512_set_epi16(REVERSE_PARAMS32(1,2,3,4,5,6,7,8,
+                                                  0,1,2,3,4,5,6,7,8,
+                                                  0,0,0,0,0,0,0,0,0,
+                                                  0,0,0,0,0,0));
+    col = _mm512_permutex2var_epi16(col_lut, col_index, col_lut);
+    blk_index = _mm512_set_epi16(REVERSE_PARAMS32(6,6,7,7,7,8,8,8,
+                                                  6,6,6,7,7,7,8,8,8,
+                                                  0,0,0,0,0,0,0,0,0,
+                                                  0,0,0,0,0,0));
+    blk = _mm512_permutex2var_epi16(blk_lut, blk_index, blk_lut);
 
-    total_lo = _mm256_or_si256(row_lo, col_lo);
-    total_lo = _mm256_or_si256(total_lo, blk_lo);
-    total_hi = _mm256_or_si256(row_hi, col_hi);
-    total_hi = _mm256_or_si256(total_hi, blk_hi);
-
-    total_lo_lo = _mm256_and_si256(total_lo, _mm256_set1_epi8(0x0F));
-    total_lo_lo = _mm256_shuffle_epi8(ones_lut, total_lo_lo);
-    total_lo_hi = _mm256_srli_epi16(total_lo, 4);
-    total_lo_hi = _mm256_and_si256(total_lo_hi, _mm256_set1_epi8(0x0F));
-    total_lo_hi = _mm256_shuffle_epi8(ones_lut, total_lo_hi);
-    __m256i ones_64_80 = _mm256_add_epi8(total_lo_lo, total_lo_hi);
-    ones_64_80 = _mm256_add_epi8(ones_64_80, total_hi);
+    total = _mm512_or_si512(row, col);
+    total = _mm512_or_si512(total, blk);
+    __m512i ones_64_80 = _mm512_popcnt_epi16(total);
 
     /** make all taken or invalid slot to -1 */
-    __m256i numbers = _mm256_loadu_si256((__m256i_u*)&s->numbers[0]);
-    __m256i empty_mask = _mm256_cmpeq_epi8(numbers, _mm256_set1_epi8(-1));
-    ones_0_31 = _mm256_blendv_epi8(_mm256_set1_epi8(-1), ones_0_31, empty_mask);
-    numbers = _mm256_loadu_si256((__m256i_u*)&s->numbers[32]);
-    empty_mask = _mm256_cmpeq_epi8(numbers, _mm256_set1_epi8(-1));
-    ones_32_63 = _mm256_blendv_epi8(_mm256_set1_epi8(-1), ones_32_63, empty_mask);
-    numbers = _mm256_loadu_si256((__m256i_u*)&s->numbers[64]);
-    empty_mask = _mm256_cmpeq_epi8(numbers, _mm256_set1_epi8(-1));
-    ones_64_80 = _mm256_blendv_epi8(_mm256_set1_epi8(-1), ones_64_80, empty_mask);
+    __m512i numbers = _mm512_loadu_si512(&s->numbers[0]);
+    __mmask32 empty_mask = _mm512_cmpeq_epi16_mask(numbers, _mm512_set1_epi16(-1));
+    ones_0_31 = _mm512_mask_blend_epi16(empty_mask, _mm512_set1_epi16(-1), ones_0_31);
+    numbers = _mm512_loadu_si512(&s->numbers[32]);
+    empty_mask = _mm512_cmpeq_epi16_mask(numbers, _mm512_set1_epi16(-1));
+    ones_32_63 = _mm512_mask_blend_epi16(empty_mask, _mm512_set1_epi16(-1), ones_32_63);
+    numbers = _mm512_loadu_si512(&s->numbers[64]);
+    empty_mask = _mm512_cmpeq_epi16_mask(numbers, _mm512_set1_epi16(-1));
+    ones_64_80 = _mm512_mask_blend_epi16(empty_mask, _mm512_set1_epi16(-1), ones_64_80);
 
     /** find the arg max */
-    __m256i max = _mm256_max_epi8(ones_0_31, ones_32_63);
-    max = _mm256_max_epi8(max, ones_64_80);
+    __m512i max = _mm512_max_epi16(ones_0_31, ones_32_63);
+    max = _mm512_max_epi16(max, ones_64_80);
     /** fold 32 -> 16 */
-    __m256i max_hi = _mm256_permute4x64_epi64(max, _MM_SHUFFLE(1,0,3,2));
-    max = _mm256_max_epi8(max, max_hi);
+    max = _mm512_max_epi16(max, _mm512_permutex2var_epi64(max, _mm512_set_epi64(4,5,6,7,0,1,2,3), max));
     /** fold 16 -> 8 */
-    max_hi = _mm256_alignr_epi8(max, max, 8);
-    max = _mm256_max_epi8(max, max_hi);
+    max = _mm512_max_epi16(max, _mm512_permutex2var_epi64(max, _mm512_set_epi64(2,3,0,1,6,7,4,5), max));
     /** fold 8 -> 4 */
-    max_hi = _mm256_alignr_epi8(max, max, 4);
-    max = _mm256_max_epi8(max, max_hi);
+    max = _mm512_max_epi16(max, _mm512_alignr_epi8(max, max, 8));
     /** fold 4 -> 2 */
-    max_hi = _mm256_alignr_epi8(max, max, 2);
-    max = _mm256_max_epi8(max, max_hi);
+    max = _mm512_max_epi16(max, _mm512_alignr_epi8(max, max, 4));
     /** fold 2 -> 1 */
-    max_hi = _mm256_alignr_epi8(max, max, 1);
-    max = _mm256_max_epi8(max, max_hi);
-
+    max = _mm512_max_epi16(max, _mm512_alignr_epi8(max, max, 2));
     /** max at this point are all the same values */
-    int8_t max_raw[32];
-    uint32_t mask_0_31 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(max, ones_0_31));
+    __mmask32 mask_0_31 = _mm512_cmpeq_epi16_mask(max, ones_0_31);
     if(mask_0_31)
         return __builtin_ctz(mask_0_31);
-    uint32_t mask_32_63 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(max, ones_32_63));
+    __mmask32 mask_32_63 = _mm512_cmpeq_epi16_mask(max, ones_32_63);
     if(mask_32_63)
         return 32 + __builtin_ctz(mask_32_63);
-    uint32_t mask_64_80 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(max, ones_64_80));
+    __mmask32 mask_64_80 = _mm512_cmpeq_epi16_mask(max, ones_64_80);
     return 64 + __builtin_ctz(mask_64_80);
 }
 
@@ -309,7 +251,7 @@ static int solve_next(sudoku_internal_t* s)
     /** check if the sudoku is finished */
     if(s->n_numbers == 9*9)
         return 0;
-    int pos = arg_min_possibility_avx2(s);
+    int pos = arg_min_possibility_avx512(s);
     int row = WHICH_ROW(pos);
     int column = WHICH_COLUMN(pos);
     int block = WHICH_BLOCK(row,column);
