@@ -4,8 +4,6 @@
 #include <immintrin.h>
 #include "sudoku_solver.h"
 
-#include <stdio.h>
-
 typedef struct
 {
     int n_numbers;
@@ -275,54 +273,34 @@ static inline int arg_min_possibility_avx2(sudoku_internal_t* s)
     ones_64_80 = _mm256_blendv_epi8(_mm256_set1_epi8(-1), ones_64_80, empty_mask);
 
     /** find the arg max */
-    __m256i max_mask = _mm256_cmpgt_epi8(ones_0_31, ones_32_63);
-    __m256i max = _mm256_blendv_epi8(ones_32_63, ones_0_31, max_mask);
-    __m256i max_index = _mm256_blendv_epi8(
-        _mm256_setr_epi8(32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63),
-        _mm256_setr_epi8( 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31),
-        max_mask
-    );
-
-    max_mask = _mm256_cmpgt_epi8(max, ones_64_80);
-    max = _mm256_blendv_epi8(ones_64_80, max, max_mask);
-    max_index = _mm256_blendv_epi8(
-        _mm256_setr_epi8(64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-        max_index,
-        max_mask
-    );
+    __m256i max = _mm256_max_epi8(ones_0_31, ones_32_63);
+    max = _mm256_max_epi8(max, ones_64_80);
     /** fold 32 -> 16 */
     __m256i max_hi = _mm256_permute4x64_epi64(max, _MM_SHUFFLE(1,0,3,2));
-    __m256i max_index_hi = _mm256_permute4x64_epi64(max_index, _MM_SHUFFLE(1,0,3,2));
-    max_mask = _mm256_cmpgt_epi8(max, max_hi);
-    max = _mm256_blendv_epi8(max_hi, max, max_mask);
-    max_index = _mm256_blendv_epi8(max_index_hi, max_index, max_mask);
+    max = _mm256_max_epi8(max, max_hi);
     /** fold 16 -> 8 */
-    max_hi = _mm256_shuffle_epi32(max, _MM_SHUFFLE(1,0,3,2));
-    max_index_hi = _mm256_shuffle_epi32(max_index, _MM_SHUFFLE(1,0,3,2));
-    max_mask = _mm256_cmpgt_epi8(max, max_hi);
-    max = _mm256_blendv_epi8(max_hi, max, max_mask);
-    max_index = _mm256_blendv_epi8(max_index_hi, max_index, max_mask);
+    max_hi = _mm256_alignr_epi8(max, max, 8);
+    max = _mm256_max_epi8(max, max_hi);
     /** fold 8 -> 4 */
-    max_hi = _mm256_shuffle_epi32(max, _MM_SHUFFLE(2,3,0,1));
-    max_index_hi = _mm256_shuffle_epi32(max_index, _MM_SHUFFLE(2,3,0,1));
-    max_mask = _mm256_cmpgt_epi8(max, max_hi);
-    max = _mm256_blendv_epi8(max_hi, max, max_mask);
-    max_index = _mm256_blendv_epi8(max_index_hi, max_index, max_mask);
+    max_hi = _mm256_alignr_epi8(max, max, 4);
+    max = _mm256_max_epi8(max, max_hi);
     /** fold 4 -> 2 */
-    max_hi = _mm256_shufflelo_epi16(max, _MM_SHUFFLE(2,3,0,1));
-    max_index_hi = _mm256_shufflelo_epi16(max_index, _MM_SHUFFLE(2,3,0,1));
-    max_mask = _mm256_cmpgt_epi8(max, max_hi);
-    max = _mm256_blendv_epi8(max_hi, max, max_mask);
-    max_index = _mm256_blendv_epi8(max_index_hi, max_index, max_mask);
-    /** 2 -> 1 */
+    max_hi = _mm256_alignr_epi8(max, max, 2);
+    max = _mm256_max_epi8(max, max_hi);
+    /** fold 2 -> 1 */
+    max_hi = _mm256_alignr_epi8(max, max, 1);
+    max = _mm256_max_epi8(max, max_hi);
+
+    /** max at this point are all the same values */
     int8_t max_raw[32];
-    uint8_t max_index_raw[32];
-    _mm256_storeu_si256((__m256i_u*)max_raw, max);
-    _mm256_storeu_si256((__m256i_u*)max_index_raw, max_index);
-    if(max_raw[0] > max_raw[1])
-        return max_index_raw[0];
-    else
-        return max_index_raw[1];
+    uint32_t mask_0_31 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(max, ones_0_31));
+    if(mask_0_31)
+        return __builtin_ctz(mask_0_31);
+    uint32_t mask_32_63 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(max, ones_32_63));
+    if(mask_32_63)
+        return 32 + __builtin_ctz(mask_32_63);
+    uint32_t mask_64_80 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(max, ones_64_80));
+    return 64 + __builtin_ctz(mask_64_80);
 }
 
 static int solve_next(sudoku_internal_t* s)
