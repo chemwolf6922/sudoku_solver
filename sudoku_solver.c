@@ -153,7 +153,7 @@ static inline int arg_min_possibility_avx512(sudoku_internal_t* s)
                                                           0,1,2,3,4));
     __m512i col = _mm512_permutex2var_epi16(col_lut, col_index, col_lut);
     /** lookup blk for the first 32 numbers */
-    __m512i blk_index = _mm512_setr_epi16(REVERSE_PARAMS32(0,0,0,1,1,1,2,2,2,
+    __m512i blk_index = _mm512_set_epi16(REVERSE_PARAMS32(0,0,0,1,1,1,2,2,2,
                                                            0,0,0,1,1,1,2,2,2,
                                                            0,0,0,1,1,1,2,2,2,
                                                            3,3,3,4,4));
