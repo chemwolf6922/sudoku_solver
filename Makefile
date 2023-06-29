@@ -3,7 +3,7 @@ override CFLAGS+=-MMD -MP -march=native
 LDFLAGS?=
 
 APP=test
-SRC=main.c sudoku_solver.c
+SRC=main.c sudoku_solver.c cpu_cycle_counter.c
 
 .PHONY:all
 all:$(APP)
